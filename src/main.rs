@@ -1,23 +1,30 @@
 extern crate atom_syndication;
 extern crate glob;
+extern crate regex;
 extern crate url;
 #[macro_use]
 extern crate clap;
 
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::fs;
-use std::io;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time;
 
-use atom_syndication::{Entry, Feed, Link, Person};
+use atom_syndication::{Entry, Feed, FixedDateTime, Link, Person};
+use chrono::prelude::*;
+use chrono::NaiveDateTime;
 use clap::{App, Arg, Values};
-use url::{Host, ParseError, Position, Url};
 use glob::glob;
+use pathdiff::diff_paths;
+use regex::Regex;
+use url::Url;
 
+/// Categories
+#[derive(PartialEq, Copy, Clone)]
 enum Category {
     FLAT,
     TREE,
@@ -28,12 +35,13 @@ impl Category {
         match s {
             "flat" => Ok(Category::FLAT),
             "tree" => Ok(Category::TREE),
-            e => Err(format!("Invalid category {}", s)),
+            _ => Err(format!("Invalid category {}", s)),
         }
     }
 }
 
-/// Checks if a category option is well formed
+/// Checks if a category option is well formed.
+/// Called by clap.
 fn is_category(val: String) -> Result<(), String> {
     let v: Vec<&str> = val.split(':').collect();
     if v.len() != 2 {
@@ -45,6 +53,8 @@ fn is_category(val: String) -> Result<(), String> {
     Err(String::from(format!("Not a valid category: {}", &v[1])))
 }
 
+/// Check if string is a valid gemini url.
+/// Called by clap.
 fn is_gemini_url(val: String) -> Result<(), String> {
     let url = match Url::parse(&val) {
         Ok(u) => u,
@@ -59,6 +69,8 @@ fn is_gemini_url(val: String) -> Result<(), String> {
     return Ok(());
 }
 
+/// Check if a pathname is an existing directory
+/// Called by clap.
 fn is_valid_directory(val: String) -> Result<(), String> {
     match fs::metadata(&val) {
         Ok(meta) => {
@@ -68,10 +80,11 @@ fn is_valid_directory(val: String) -> Result<(), String> {
                 Err(String::from(format!("Invalid directory: {}", &val)))
             }
         }
-        Err(e) => Err(String::from(format!("Invalid directory: {}", &val))),
+        Err(_) => Err(String::from(format!("Invalid directory: {}", &val))),
     }
 }
 
+/// Returns true if val is a regular file.
 fn is_file(val: &str) -> bool {
     match fs::metadata(val) {
         Ok(meta) => meta.is_file(),
@@ -79,6 +92,7 @@ fn is_file(val: &str) -> bool {
     }
 }
 
+/// Returns true if val is a world readable pathname.
 fn is_world_readable(val: &str) -> bool {
     match fs::metadata(val) {
         Ok(meta) => (meta.permissions().mode() & 0o4) != 0,
@@ -86,6 +100,7 @@ fn is_world_readable(val: &str) -> bool {
     }
 }
 
+/// Parses the list of categories given as options.
 fn parse_categories(values: &mut Values) -> Result<HashMap<String, Category>, String> {
     let mut cats = HashMap::new();
     for value in values {
@@ -96,34 +111,57 @@ fn parse_categories(values: &mut Values) -> Result<HashMap<String, Category>, St
     Ok(cats)
 }
 
+/// Returns the lat modification time of a file.
 fn mtime(fname: &str) -> time::SystemTime {
     fs::metadata(fname).unwrap().modified().unwrap()
 }
 
+/// Returns the creation time of a file.
 fn ctime(fname: &str) -> time::SystemTime {
     fs::metadata(fname).unwrap().created().unwrap()
 }
 
+/// Collect all articles in a category.
 fn collect_articles(name: &str, typ: Category, root: &str) -> Vec<String> {
-    let fulldir = PathBuf::new();
+    let mut fulldir = PathBuf::new();
     fulldir.push(root);
     fulldir.push(name);
-    let globs = Vec::new();
-    if typ == Category::FLAT {
-        globs.extend(["*.gmi", "*.gemini"]);
+    let globs = if typ == Category::FLAT {
+        vec!["*.gmi", "*.gemini"]
     } else {
-        globs.extend(["**/*.gmi", "**/*.gemini"]);
-    }
-    let articles = Vec::new();
+        vec!["**/*.gmi", "**/*.gemini"]
+    };
+    let mut articles = Vec::new();
     let indexes = vec!["index.gmi", "index.gemini"];
     for pat in globs {
         let mut fullpattern = fulldir.clone();
         fullpattern.push(pat);
-        for path in glob(fullpattern) {
-            if (!(path.file_name() in indexes) && typ == Category::FLAT) ||
-                (path.file_name() in indexes && typ == Category::TREE &&
-                )
+        for path in glob(fullpattern.as_path().to_str().unwrap()).unwrap() {
+            match path {
+                Ok(path) => {
+                    let fname = path.file_name().unwrap().to_str().unwrap();
+                    if ((!indexes.contains(&fname)) && typ == Category::FLAT)
+                        || (indexes.contains(&fname)
+                            && typ == Category::TREE
+                            && diff_paths(path.as_path(), root)
+                                .unwrap()
+                                .as_path()
+                                .to_str()
+                                .unwrap()
+                                .contains('/'))
+                    {
+                        articles.push(String::from(path.as_path().to_str().unwrap()));
+                    }
+                }
+                _ => {}
+            }
         }
+    }
+    let articles = articles
+        .iter()
+        .cloned()
+        .filter(|e| is_world_readable(e))
+        .collect();
     return articles;
 }
 
@@ -150,7 +188,7 @@ fn get_feed_title(dir: &str) -> String {
     let d = Path::new(dir);
     let default = d.file_name().unwrap().to_str().unwrap();
     for index_file in vec!["index.gemini", "index.gmi"] {
-        let index_path = PathBuf::new();
+        let mut index_path = PathBuf::new();
         index_path.push(dir);
         index_path.push(index_file);
         let index_path = index_path.to_str().unwrap();
@@ -180,6 +218,52 @@ fn get_files(
     }
 }
 
+fn get_update_time(filepath: &str, time_func: fn(&str) -> time::SystemTime) -> FixedDateTime {
+    let path = Path::new(filepath);
+    let basename = path.file_name().unwrap().to_str().unwrap();
+    let re = Regex::new(r"^\d{4}-\d{2}-\d{2}").unwrap();
+    if re.is_match(basename) {
+        let date = format!("{} {}", &basename[0..10], "Z");
+        return date.parse::<FixedDateTime>().unwrap();
+    }
+    let updated = time_func(filepath);
+    return FixedDateTime::from_utc(
+        NaiveDateTime::from_timestamp(updated.elapsed().unwrap().as_secs().try_into().unwrap(), 0),
+        FixedOffset::east(0),
+    );
+}
+
+// Set the id, title, updated and link attributes of the provided
+// FeedGenerator entry object according the contents of the named
+// Gemini file and the base URL.
+fn populate_entry_from_file(
+    filepath: &str,
+    base_url: &Url,
+    time_func: fn(&str) -> time::SystemTime,
+    root: &str,
+) -> Entry {
+    let pfile = Path::new(filepath);
+    let proot = Path::new(root);
+    let url = if pfile.parent().unwrap() == proot {
+        base_url
+            .join(pfile.file_name().unwrap().to_str().unwrap())
+            .unwrap()
+    } else {
+        base_url.join(&filepath[root.len()..]).unwrap()
+    };
+    let mut entry = Entry::default();
+    entry.set_id(url.as_str());
+    let mut link = Link::default();
+    link.set_href(url.as_str());
+    link.set_rel("alternate");
+    entry.set_links(vec![link]);
+    entry.set_updated(get_update_time(filepath, time_func));
+    let default_title = pfile.file_stem().unwrap().to_str().unwrap();
+    let title = extract_first_heading(filepath, default_title);
+    entry.set_title(title);
+    entry
+}
+
 fn build_feed(
     directory: &str,
     categories: &HashMap<String, Category>,
@@ -204,7 +288,7 @@ fn build_feed(
             title, feed_url
         );
     }
-    let feed = Feed::default();
+    let mut feed = Feed::default();
     feed.set_id(base_url.as_str());
     feed.set_title(title);
     feed.set_subtitle(if let Some(s) = subtitle {
@@ -212,7 +296,7 @@ fn build_feed(
     } else {
         None
     });
-    let person = Person::default();
+    let mut person = Person::default();
     if let Some(a) = author {
         person.set_name(a);
     }
@@ -225,8 +309,8 @@ fn build_feed(
         let v = vec![person];
         feed.set_authors(v);
     }
-    let self_link = Link::default();
-    let alt_link = Link::default();
+    let mut self_link = Link::default();
+    let mut alt_link = Link::default();
     self_link.set_href(base_url.as_str());
     self_link.set_rel("href");
     alt_link.set_href(base_url.as_str());
@@ -234,14 +318,34 @@ fn build_feed(
     let v = vec![self_link, alt_link];
     feed.set_links(v);
 
-    let files = get_files(directory, categories, time_func, n);
-    if files == None {
-        if verbose {
-            println!("No world-readable gemini content found! :(");
+    let files = match get_files(directory, categories, time_func, n) {
+        None => {
+            if verbose {
+                println!("No world-readable gemini content found! :(");
+            }
+            return;
         }
-        return;
-    }
+        Some(f) => f,
+    };
     let mut entries = Vec::new();
+    for f in files {
+        let entry = populate_entry_from_file(&f, &base_url, time_func, directory);
+        if verbose {
+            println!(
+                "Adding {} with title {}",
+                Path::new(&f).file_name().unwrap().to_str().unwrap(),
+                entry.title()
+            );
+        }
+        entries.push(entry)
+    }
+    if entries.len() != 0 {
+        feed.set_updated(*entries[0].updated());
+        feed.set_entries(entries);
+    }
+    // write the file.
+    let out = fs::File::create(output).unwrap();
+    feed.write_to(out).unwrap();
 }
 
 fn main() {
@@ -372,4 +476,85 @@ fn main() {
         matches.value_of("email"),
         verbose,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_category() {
+        assert_eq!(is_category(String::from("blabla:flat")), Ok(()));
+        assert_eq!(is_category(String::from("news:tree")), Ok(()));
+        assert_eq!(
+            is_category(String::from("vers:zorgl")),
+            Err(String::from("Not a valid category: zorgl"))
+        );
+        assert_eq!(
+            is_category(String::from("vers:ici:tree")),
+            Err(String::from("Bad category specification: vers:ici:tree"))
+        );
+    }
+
+    #[test]
+    fn test_is_gemini_url() {
+        assert_eq!(
+            is_gemini_url(String::from("gemini://retry-abort.org")),
+            Ok(())
+        );
+        assert_eq!(
+            is_gemini_url(String::from("gemini://retry-abort.org/")),
+            Ok(())
+        );
+        assert_eq!(
+            is_gemini_url(String::from("gemini://retry-abort.org/vers/")),
+            Ok(())
+        );
+        assert_eq!(
+            is_gemini_url(String::from("gemini://retry-abort.org/vers/test.gmi")),
+            Ok(())
+        );
+        assert_eq!(
+            is_gemini_url(String::from("gemini://user@retry-abort.org/vers/test.gmi")),
+            Err(String::from("user authentication not allowed in url gemini://user@retry-abort.org/vers/test.gmi"))
+        );
+        assert_eq!(
+            is_gemini_url(String::from("portnawak")),
+            Err(String::from("relative URL without a base"))
+        );
+        assert_eq!(
+            is_gemini_url(String::from("http://portnawak.com")),
+            Err(String::from("Bad url scheme : http"))
+        );
+    }
+
+    #[test]
+    fn test_is_valid_directory() {
+        assert_eq!(is_valid_directory(String::from("/home/wurbel")), Ok(()));
+        assert_eq!(
+            is_valid_directory(String::from("/home/zorgl")),
+            Err(String::from("Invalid directory: /home/zorgl"))
+        );
+        assert_eq!(
+            is_valid_directory(String::from("/dev/core")),
+            Err(String::from("Invalid directory: /dev/core"))
+        );
+    }
+
+    #[test]
+    fn test_is_file() {
+        assert!(is_file("/etc/hosts"));
+        assert!(! is_file("/etc"));
+        assert!(! is_file("/dev/loop0"));
+    }
+
+    #[test]
+    fn test_is_world_readable() {
+        assert!(is_world_readable("/etc/hosts"));
+        assert!(! is_world_readable("/etc/shadow"));
+    }
+
+    
+
+    
 }
