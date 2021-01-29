@@ -1,0 +1,13 @@
+[package]
+name = "gematom"
+version = "0.1.0"
+authors = ["Eric Würbel <eric.wurbel@univ-amu.fr>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+atom_syndication = "0.9.1"
+glob = "0.3.0"
+clap = "2.33.3"
+url = "2.2.0"
