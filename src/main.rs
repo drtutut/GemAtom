@@ -24,7 +24,7 @@ use regex::Regex;
 use url::Url;
 
 /// Categories
-#[derive(PartialEq, Copy, Clone)]
+#[derive(PartialEq, Copy, Clone, Debug)]
 enum Category {
     FLAT,
     TREE,
@@ -47,10 +47,10 @@ fn is_category(val: String) -> Result<(), String> {
     if v.len() != 2 {
         return Err(String::from(format!("Bad category specification: {}", val)));
     };
-    if ["flat", "tree"].contains(&v[1]) {
-        return Ok(());
+    if !["flat", "tree"].contains(&v[1]) {
+        return Err(String::from(format!("Not a valid category: {}", &v[1])));
     };
-    Err(String::from(format!("Not a valid category: {}", &v[1])))
+    Ok(())
 }
 
 /// Check if string is a valid gemini url.
@@ -143,7 +143,7 @@ fn collect_articles(name: &str, typ: Category, root: &str) -> Vec<String> {
                     if ((!indexes.contains(&fname)) && typ == Category::FLAT)
                         || (indexes.contains(&fname)
                             && typ == Category::TREE
-                            && diff_paths(path.as_path(), root)
+                            && diff_paths(path.as_path(), fulldir.as_path().to_str().unwrap())
                                 .unwrap()
                                 .as_path()
                                 .to_str()
@@ -167,13 +167,10 @@ fn collect_articles(name: &str, typ: Category, root: &str) -> Vec<String> {
 
 fn extract_first_heading(filename: &str, default: &str) -> String {
     let f = fs::File::open(filename).unwrap();
-    let mut reader = BufReader::new(f);
-    let mut buffer = String::new();
-    while let Ok(n) = reader.read_line(&mut buffer) {
-        if n == 0 {
-            break;
-        }
-        let mut buf = &buffer[..];
+    let reader = BufReader::new(f);
+    for line in reader.lines() {
+        let line = line.unwrap();
+        let mut buf = &line[..];
         if buf.starts_with("#") {
             while buf.chars().nth(0).unwrap() == '#' {
                 buf = &buf[1..];
@@ -209,7 +206,12 @@ fn get_files(
     for (cat, typ) in categories {
         files.extend(collect_articles(cat, *typ, directory))
     }
-    files.sort_by_key(|a| time_func(a));
+    files.sort_by_key(|a| {
+        time_func(a)
+            .duration_since(time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    });
     files.reverse();
     if files.len() == 0 {
         None
@@ -223,19 +225,30 @@ fn get_update_time(filepath: &str, time_func: fn(&str) -> time::SystemTime) -> F
     let basename = path.file_name().unwrap().to_str().unwrap();
     let re = Regex::new(r"^\d{4}-\d{2}-\d{2}").unwrap();
     if re.is_match(basename) {
-        let date = format!("{} {}", &basename[0..10], "Z");
-        return date.parse::<FixedDateTime>().unwrap();
+        let date = format!("{}{}", &basename[0..10], "T00:00:00 Z");
+        println!("=> {:?}", date);
+        return FixedDateTime::parse_from_str(&date, "%Y-%m-%dT%H:%M:%S %z").unwrap();
+        // return date.parse::<FixedDateTime>().unwrap();
     }
     let updated = time_func(filepath);
+
     return FixedDateTime::from_utc(
-        NaiveDateTime::from_timestamp(updated.elapsed().unwrap().as_secs().try_into().unwrap(), 0),
+        NaiveDateTime::from_timestamp(
+            updated
+                .duration_since(time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                .try_into()
+                .unwrap(),
+            0,
+        ),
         FixedOffset::east(0),
     );
 }
 
-// Set the id, title, updated and link attributes of the provided
-// FeedGenerator entry object according the contents of the named
-// Gemini file and the base URL.
+/// Set the id, title, updated and link attributes of the provided
+/// FeedGenerator entry object according the contents of the named
+/// Gemini file and the base URL.
 fn populate_entry_from_file(
     filepath: &str,
     base_url: &Url,
@@ -312,7 +325,7 @@ fn build_feed(
     let mut self_link = Link::default();
     let mut alt_link = Link::default();
     self_link.set_href(base_url.as_str());
-    self_link.set_rel("href");
+    self_link.set_rel("self");
     alt_link.set_href(base_url.as_str());
     alt_link.set_rel("alternate");
     let v = vec![self_link, alt_link];
@@ -333,7 +346,8 @@ fn build_feed(
         if verbose {
             println!(
                 "Adding {} with title {}",
-                Path::new(&f).file_name().unwrap().to_str().unwrap(),
+                &f,
+                //                Path::new(&f).file_name().unwrap().to_str().unwrap(),
                 entry.title()
             );
         }
@@ -344,7 +358,11 @@ fn build_feed(
         feed.set_entries(entries);
     }
     // write the file.
-    let out = fs::File::create(output).unwrap();
+    let mut outpath = PathBuf::new();
+    outpath.push(directory);
+    outpath.push(output);
+    println!("outputting to {:?}", outpath);
+    let out = fs::File::create(outpath).unwrap();
     feed.write_to(out).unwrap();
 }
 
@@ -414,6 +432,7 @@ fn main() {
                 .short("o")
                 .long("output")
                 .value_name("FILE")
+                .default_value("atom.xml")
                 .help("Output file name")
                 .takes_value(true),
         )
@@ -462,7 +481,10 @@ fn main() {
     } else {
         ctime
     };
-
+    println!(
+        "root dir: {:?}, n: {}, output: {:?}, base: {:?}, categories: {:?}",
+        directory, n, output, base, categories
+    );
     build_feed(
         directory,
         &categories,
@@ -544,17 +566,13 @@ mod tests {
     #[test]
     fn test_is_file() {
         assert!(is_file("/etc/hosts"));
-        assert!(! is_file("/etc"));
-        assert!(! is_file("/dev/loop0"));
+        assert!(!is_file("/etc"));
+        assert!(!is_file("/dev/loop0"));
     }
 
     #[test]
     fn test_is_world_readable() {
         assert!(is_world_readable("/etc/hosts"));
-        assert!(! is_world_readable("/etc/shadow"));
+        assert!(!is_world_readable("/etc/shadow"));
     }
-
-    
-
-    
 }
