@@ -31,6 +31,7 @@ enum Category {
 }
 
 impl Category {
+    /// Build a category from a string.
     fn from_str(s: &str) -> Result<Self, String> {
         match s {
             "flat" => Ok(Category::FLAT),
@@ -165,6 +166,10 @@ fn collect_articles(name: &str, typ: Category, root: &str) -> Vec<String> {
     return articles;
 }
 
+/// Extract the first gemini heading in a file. If no such heading is
+/// found, return a default string.
+///
+/// No check is made concerning the existence of the file.
 fn extract_first_heading(filename: &str, default: &str) -> String {
     let f = fs::File::open(filename).unwrap();
     let reader = BufReader::new(f);
@@ -181,6 +186,10 @@ fn extract_first_heading(filename: &str, default: &str) -> String {
     return String::from(default);
 }
 
+/// Get the feed title.
+///
+/// If there is an index file, try to extract the first heading,
+/// otherwise use the directory name.
 fn get_feed_title(dir: &str) -> String {
     let d = Path::new(dir);
     let default = d.file_name().unwrap().to_str().unwrap();
@@ -196,15 +205,18 @@ fn get_feed_title(dir: &str) -> String {
     return default.to_string();
 }
 
+
+/// Extract the files in the specified `categories`, starting from
+/// `root` directory. Use `time_func` for sorting. Keep `n` files.
 fn get_files(
-    directory: &str,
+    root: &str,
     categories: &HashMap<String, Category>,
     time_func: fn(&str) -> time::SystemTime,
     n: usize,
 ) -> Option<Vec<String>> {
     let mut files = Vec::new();
     for (cat, typ) in categories {
-        files.extend(collect_articles(cat, *typ, directory))
+        files.extend(collect_articles(cat, *typ, root))
     }
     files.sort_by_key(|a| {
         time_func(a)
@@ -220,15 +232,15 @@ fn get_files(
     }
 }
 
+/// Get the update time of a file. If the name begins with a rfc3339
+/// date, use it, otherwise use the `time_func`.
 fn get_update_time(filepath: &str, time_func: fn(&str) -> time::SystemTime) -> FixedDateTime {
     let path = Path::new(filepath);
     let basename = path.file_name().unwrap().to_str().unwrap();
     let re = Regex::new(r"^\d{4}-\d{2}-\d{2}").unwrap();
     if re.is_match(basename) {
         let date = format!("{}{}", &basename[0..10], "T00:00:00 Z");
-        println!("=> {:?}", date);
-        return FixedDateTime::parse_from_str(&date, "%Y-%m-%dT%H:%M:%S %z").unwrap();
-        // return date.parse::<FixedDateTime>().unwrap();
+        return (&date).parse().unwrap();
     }
     let updated = time_func(filepath);
 
@@ -369,7 +381,7 @@ fn build_feed(
 fn main() {
     let matches = App::new("gematom")
         .version("1.0")
-        .author("Eric Würbel <eric.wurbel@univ-amu.fr>")
+        .author("Eric Würbel <eric@vents-sauvages.fr>")
         .about("Generate an atom feed our of a gemini site")
         .arg(
             Arg::with_name("author")
