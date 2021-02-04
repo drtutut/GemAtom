@@ -321,9 +321,11 @@ fn build_feed(
         None
     });
     let mut gen = Generator::default();
-    gen.set_value("gematom, an atom feed generator for gemini. (c) Éric Würbel 2021");
-    gen.set_uri(Some(String::from("https://github.com/drtutut/gematom")));
+    gen.set_value("gematom, an atom feed generator for gemini.");
+    gen.set_uri("https://github.com/drtutut/gematom".to_string());
+    gen.set_version("1.0".to_string());
     feed.set_generator(gen);
+    feed.set_rights("© Éric Würbel 2021".to_string());
     let mut person = Person::default();
     if let Some(a) = author {
         person.set_name(a);
