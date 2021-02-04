@@ -205,7 +205,6 @@ fn get_feed_title(dir: &str) -> String {
     return default.to_string();
 }
 
-
 /// Extract the files in the specified `categories`, starting from
 /// `root` directory. Use `time_func` for sorting. Keep `n` files.
 fn get_files(
@@ -321,6 +320,9 @@ fn build_feed(
     } else {
         None
     });
+    let gen = Generator::default();
+    gen.set_value("GemAtom, an atom feed generator for gemini. (c) Éric Würbel 2021");
+    feed.set_generator(gen);
     let mut person = Person::default();
     if let Some(a) = author {
         person.set_name(a);
@@ -473,7 +475,7 @@ fn main() {
         .arg(
             Arg::with_name("mtime")
                 .long("mtime")
-                .help("Use file modification time, not file update time"),
+                .help("Use file modification time, not file creation time"),
         )
         .get_matches();
     let base = Url::parse(matches.value_of("base").unwrap()).unwrap();
