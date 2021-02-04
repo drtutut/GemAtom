@@ -14,7 +14,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time;
 
-use atom_syndication::{Entry, Feed, FixedDateTime, Link, Person};
+use atom_syndication::{Entry, Feed, FixedDateTime, Link, Person, Generator};
 use chrono::prelude::*;
 use chrono::NaiveDateTime;
 use clap::{App, Arg, Values};
@@ -320,8 +320,9 @@ fn build_feed(
     } else {
         None
     });
-    let gen = Generator::default();
-    gen.set_value("GemAtom, an atom feed generator for gemini. (c) Éric Würbel 2021");
+    let mut gen = Generator::default();
+    gen.set_value("gematom, an atom feed generator for gemini. (c) Éric Würbel 2021");
+    gen.set_uri(Some(String::from("https://github.com/drtutut/gematom")));
     feed.set_generator(gen);
     let mut person = Person::default();
     if let Some(a) = author {
@@ -495,10 +496,6 @@ fn main() {
     } else {
         ctime
     };
-    println!(
-        "root dir: {:?}, n: {}, output: {:?}, base: {:?}, categories: {:?}",
-        directory, n, output, base, categories
-    );
     build_feed(
         directory,
         &categories,
