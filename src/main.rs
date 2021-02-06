@@ -14,7 +14,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time;
 
-use atom_syndication::{Entry, Feed, FixedDateTime, Link, Person, Generator};
+use atom_syndication::{Entry, Feed, FixedDateTime, Generator, Link, Person};
 use chrono::prelude::*;
 use chrono::NaiveDateTime;
 use clap::{App, Arg, Values};
@@ -40,6 +40,10 @@ impl Category {
         }
     }
 }
+
+// useful when collecting files
+#[derive(Clone)]
+struct Pair(String, Category);
 
 /// Checks if a category option is well formed.
 /// Called by clap.
@@ -123,7 +127,7 @@ fn ctime(fname: &str) -> time::SystemTime {
 }
 
 /// Collect all articles in a category.
-fn collect_articles(name: &str, typ: Category, root: &str) -> Vec<String> {
+fn collect_articles(name: &str, typ: Category, root: &str) -> Vec<Pair> {
     let mut fulldir = PathBuf::new();
     fulldir.push(root);
     fulldir.push(name);
@@ -151,7 +155,7 @@ fn collect_articles(name: &str, typ: Category, root: &str) -> Vec<String> {
                                 .unwrap()
                                 .contains('/'))
                     {
-                        articles.push(String::from(path.as_path().to_str().unwrap()));
+                        articles.push(Pair(String::from(path.as_path().to_str().unwrap()), typ));
                     }
                 }
                 _ => {}
@@ -161,7 +165,10 @@ fn collect_articles(name: &str, typ: Category, root: &str) -> Vec<String> {
     let articles = articles
         .iter()
         .cloned()
-        .filter(|e| is_world_readable(e))
+        .filter(|e| {
+            let Pair(f, _) = e;
+            is_world_readable(f)
+        })
         .collect();
     return articles;
 }
@@ -190,16 +197,21 @@ fn extract_first_heading(filename: &str, default: &str) -> String {
 ///
 /// If there is an index file, try to extract the first heading,
 /// otherwise use the directory name.
-fn get_feed_title(dir: &str) -> String {
+fn get_feed_title(dir: &str, clean: bool) -> String {
     let d = Path::new(dir);
     let default = d.file_name().unwrap().to_str().unwrap();
+    let default = if clean {
+	default.replace("_", " ")
+    } else {
+	default.to_string()
+    };
     for index_file in vec!["index.gemini", "index.gmi"] {
         let mut index_path = PathBuf::new();
         index_path.push(dir);
         index_path.push(index_file);
         let index_path = index_path.to_str().unwrap();
         if is_file(index_path) && is_world_readable(index_path) {
-            return extract_first_heading(index_path, default);
+            return extract_first_heading(index_path, &default);
         }
     }
     return default.to_string();
@@ -212,13 +224,14 @@ fn get_files(
     categories: &HashMap<String, Category>,
     time_func: fn(&str) -> time::SystemTime,
     n: usize,
-) -> Option<Vec<String>> {
+) -> Option<Vec<Pair>> {
     let mut files = Vec::new();
     for (cat, typ) in categories {
         files.extend(collect_articles(cat, *typ, root))
     }
     files.sort_by_key(|a| {
-        time_func(a)
+        let Pair(f, _) = a;
+        time_func(f)
             .duration_since(time::UNIX_EPOCH)
             .unwrap()
             .as_secs()
@@ -265,6 +278,8 @@ fn populate_entry_from_file(
     base_url: &Url,
     time_func: fn(&str) -> time::SystemTime,
     root: &str,
+    cat: Category,
+    clean: bool,
 ) -> Entry {
     let pfile = Path::new(filepath);
     let proot = Path::new(root);
@@ -282,8 +297,24 @@ fn populate_entry_from_file(
     link.set_rel("alternate");
     entry.set_links(vec![link]);
     entry.set_updated(get_update_time(filepath, time_func));
-    let default_title = pfile.file_stem().unwrap().to_str().unwrap();
-    let title = extract_first_heading(filepath, default_title);
+    // if tree category, do not use file stem (because it is
+    // "index") but the parent directory name.
+    let default_title = match cat {
+        Category::FLAT => pfile.file_stem().unwrap().to_str().unwrap(),
+        Category::TREE => pfile
+            .parent()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap(),
+    };
+    let default_title = if clean {
+	default_title.replace("_", " ")
+    } else {
+	default_title.to_string()
+    };
+    let title = extract_first_heading(filepath, &default_title);
     entry.set_title(title);
     entry
 }
@@ -300,10 +331,11 @@ fn build_feed(
     author: Option<&str>,
     email: Option<&str>,
     verbose: bool,
+    clean: bool,
 ) {
     let title = match title {
         Some(t) => String::from(t),
-        None => get_feed_title(directory),
+        None => get_feed_title(directory, clean),
     };
     let feed_url = base_url.join(output).unwrap();
     if verbose {
@@ -348,6 +380,8 @@ fn build_feed(
     let v = vec![self_link, alt_link];
     feed.set_links(v);
 
+    // TODO: this shoud return a vector of tuples (file, category
+    // type) because we need this to infer a default title.
     let files = match get_files(directory, categories, time_func, n) {
         None => {
             if verbose {
@@ -358,15 +392,11 @@ fn build_feed(
         Some(f) => f,
     };
     let mut entries = Vec::new();
-    for f in files {
-        let entry = populate_entry_from_file(&f, &base_url, time_func, directory);
+    for fp in files {
+        let Pair(f, cat) = fp;
+        let entry = populate_entry_from_file(&f, &base_url, time_func, directory, cat, clean);
         if verbose {
-            println!(
-                "Adding {} with title {}",
-                &f,
-                //                Path::new(&f).file_name().unwrap().to_str().unwrap(),
-                entry.title()
-            );
+            println!("Adding {} with title {}", &f, entry.title());
         }
         entries.push(entry)
     }
@@ -417,6 +447,12 @@ fn main() {
                 .required(true)
                 .validator(is_category)
                 .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("clean-title")
+                .short("C")
+                .long("clean-title")
+                .help("When using a file or directory name as a title, convert '_' into space."),
         )
         .arg(
             Arg::with_name("directory")
@@ -493,6 +529,7 @@ fn main() {
     let n = value_t!(matches, "n", usize).unwrap_or(10);
     let output = matches.value_of("output").unwrap();
     let verbose = !matches.is_present("quiet");
+    let clean_title = matches.is_present("clean-title");
     let time_func = if matches.is_present("mtime") {
         mtime
     } else {
@@ -510,6 +547,7 @@ fn main() {
         matches.value_of("author"),
         matches.value_of("email"),
         verbose,
+        clean_title,
     );
 }
 
