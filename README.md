@@ -1,16 +1,17 @@
 
 # Table of Contents
 
-1.  [Description](#orgc02378a)
-2.  [Structure description](#org11b5834)
-3.  [Usage](#org4fa39a1)
-4.  [Notes about feed entry dates](#orgb50b5dd)
-    1.  [flat categories](#org7f74f23)
-    2.  [tree categories](#org5564fa9)
+1.  [Description](#orga6ad9cb)
+2.  [Structure description](#orga01be44)
+3.  [Usage](#orgc80c139)
+4.  [Notes about feed entry dates](#org5219b30)
+    1.  [flat categories](#org4539ff0)
+    2.  [tree categories](#orgb7bb8a2)
+    3.  [whatever the category is](#org6bd6f2c)
 
 
 
-<a id="orgc02378a"></a>
+<a id="orga6ad9cb"></a>
 
 # Description
 
@@ -20,7 +21,7 @@ It supports a sitre structure description aiming at not being too
 stupid in its choice of files to include in the feed.
 
 
-<a id="org11b5834"></a>
+<a id="orga01be44"></a>
 
 # Structure description
 
@@ -68,7 +69,7 @@ The content is supposed to be (bracketed text is a comment)
             `-- nobody-expects.mp3 [not in feed]
 
 
-<a id="org4fa39a1"></a>
+<a id="orgc80c139"></a>
 
 # Usage
 
@@ -78,10 +79,11 @@ The general syntax of GemAtom is as follows :
         gematom [FLAGS] [OPTIONS] --base <URL> --category <DIR:TYPE>... --directory <DIR>
     
     FLAGS:
-        -h, --help       Prints help information
-            --mtime      Use file modification time, not file creation time
-        -q, --quiet      Do not write on stdout under non-error conditions
-        -V, --version    Prints version information
+        -C, --clean-title    When using a file or directory name as a title, convert '_' into space.
+        -h, --help           Prints help information
+            --mtime          Use file modification time, not file creation time
+        -q, --quiet          Do not write on stdout under non-error conditions
+        -V, --version        Prints version information
     
     OPTIONS:
         -a, --author <NAME>             Author name [default: ]
@@ -95,12 +97,12 @@ The general syntax of GemAtom is as follows :
         -t, --title <STR>               Feed title
 
 
-<a id="orgb50b5dd"></a>
+<a id="org5219b30"></a>
 
 # Notes about feed entry dates
 
 
-<a id="org7f74f23"></a>
+<a id="org4539ff0"></a>
 
 ## flat categories
 
@@ -111,13 +113,23 @@ The entry date retained is :
     present.
 
 
-<a id="org5564fa9"></a>
+<a id="orgb7bb8a2"></a>
 
 ## tree categories
 
-Actually, the file creation date is used, except if `--mtime` flag is
-present.
+In tree categories, articles are "index" files contained in
+a directory dedicated to this article. Thus :
 
-We plan to add the possibility of using a rfc3339 date prefixing
-the name of articles' directories.
+-   if the parent dir of an article  starts with an rfc3339 date, use this date.
+-   otherwise use file creation date, except if `--mtime` flag is
+    present.
+
+
+<a id="org6bd6f2c"></a>
+
+## whatever the category is
+
+If the feed entry title has to be infered from the article file
+(flat cat) ou dir (tree cat), then if this file or dir starts with
+a rrfc3339 date, it is removed.
 
