@@ -116,8 +116,7 @@ fn parse_categories(values: &mut Values) -> Result<HashMap<String, Category>, St
     let mut cats = HashMap::new();
     for value in values {
         let v: Vec<&str> = value.split(':').collect();
-        let c = Category::from_str(v[1])?;
-        cats.insert(v[0].to_string(), c);
+        cats.insert(v[0].to_string(), Category::from_str(v[1])?);
     }
     Ok(cats)
 }
@@ -137,10 +136,9 @@ fn collect_articles(name: &str, typ: Category, root: &str) -> Vec<Pair> {
     let mut fulldir = PathBuf::new();
     fulldir.push(root);
     fulldir.push(name);
-    let globs = if typ == Category::FLAT {
-        vec!["*.gmi", "*.gemini"]
-    } else {
-        vec!["**/*.gmi", "**/*.gemini"]
+    let globs = match typ {
+        Category::FLAT => vec!["*.gmi", "*.gemini"],
+        Category::TREE => vec!["**/*.gmi", "**/*.gemini"],
     };
     let mut articles = Vec::new();
     let indexes = vec!["index.gmi", "index.gemini"];
@@ -296,17 +294,17 @@ fn get_update_time(
 /// next chars after the date are '-', '_' or a space, skip them.
 fn remove_rfc3339_date(filename: &str) -> &str {
     if RFC3339_RE.is_match(filename) {
-	let mut char_indices = filename[10..].char_indices();
-	let idx = loop {
-	    if let Some((idx, ch)) = char_indices.next() {
-		if ! ("_-".contains(ch) || ch.is_whitespace()) {
-		    break 10 + idx;
-		}
-	    } else {
-		break 10;
-	    }
-	};
-	&filename[idx..]
+        let mut char_indices = filename[10..].char_indices();
+        let idx = loop {
+            if let Some((idx, ch)) = char_indices.next() {
+                if !("_-".contains(ch) || ch.is_whitespace()) {
+                    break 10 + idx;
+                }
+            } else {
+                break 10;
+            }
+        };
+        &filename[idx..]
     } else {
         filename
     }
