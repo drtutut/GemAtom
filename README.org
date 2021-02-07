@@ -61,10 +61,11 @@ USAGE:
     gematom [FLAGS] [OPTIONS] --base <URL> --category <DIR:TYPE>... --directory <DIR>
 
 FLAGS:
-    -h, --help       Prints help information
-        --mtime      Use file modification time, not file creation time
-    -q, --quiet      Do not write on stdout under non-error conditions
-    -V, --version    Prints version information
+    -C, --clean-title    When using a file or directory name as a title, convert '_' into space.
+    -h, --help           Prints help information
+        --mtime          Use file modification time, not file creation time
+    -q, --quiet          Do not write on stdout under non-error conditions
+    -V, --version        Prints version information
 
 OPTIONS:
     -a, --author <NAME>             Author name [default: ]
