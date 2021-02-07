@@ -88,9 +88,16 @@ OPTIONS:
      present.
 
 ** tree categories
+   
+   In tree categories, articles are "index" files contained in
+   a directory dedicated to this article. Thus :
 
-   Actually, the file creation date is used, except if ~--mtime~ flag is
-   present.
+   - if the parent dir of an article  starts with an rfc3339 date, use this date.
+   - otherwise use file creation date, except if ~--mtime~ flag is
+     present.
 
-   We plan to add the possibility of using a rfc3339 date prefixing
-   the name of articles' directories.
+** whatever the category is
+
+   If the feed entry title has to be infered from the article file
+   (flat cat) ou dir (tree cat), then if this file or dir starts with
+   a rrfc3339 date, it is removed.

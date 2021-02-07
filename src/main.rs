@@ -4,6 +4,8 @@ extern crate regex;
 extern crate url;
 #[macro_use]
 extern crate clap;
+#[macro_use]
+extern crate lazy_static;
 
 use std::collections::HashMap;
 use std::convert::TryInto;
@@ -22,6 +24,10 @@ use glob::glob;
 use pathdiff::diff_paths;
 use regex::Regex;
 use url::Url;
+
+lazy_static! {
+    static ref RFC3339_RE: Regex = Regex::new(r"^\d{4}-\d{2}-\d{2}").unwrap();
+}
 
 /// Categories
 #[derive(PartialEq, Copy, Clone, Debug)]
@@ -201,9 +207,9 @@ fn get_feed_title(dir: &str, clean: bool) -> String {
     let d = Path::new(dir);
     let default = d.file_name().unwrap().to_str().unwrap();
     let default = if clean {
-	default.replace("_", " ")
+        default.replace("_", " ")
     } else {
-	default.to_string()
+        default.to_string()
     };
     for index_file in vec!["index.gemini", "index.gmi"] {
         let mut index_path = PathBuf::new();
@@ -244,18 +250,34 @@ fn get_files(
     }
 }
 
-/// Get the update time of a file. If the name begins with a rfc3339
-/// date, use it, otherwise use the `time_func`.
-fn get_update_time(filepath: &str, time_func: fn(&str) -> time::SystemTime) -> FixedDateTime {
+/// Get the update time of a file.
+///
+/// If the file is in a flat category, then, if the name starts with
+/// a rfc3339 date, use it, otherwise use the `time_func`.  If the
+/// file is in a tree category, then it is an "index" file. If the
+/// parent dir name starts with an rfc3339 date, then use it,
+/// otherwise une the `time_func` on the file.
+fn get_update_time(
+    filepath: &str,
+    time_func: fn(&str) -> time::SystemTime,
+    cat: Category,
+) -> FixedDateTime {
     let path = Path::new(filepath);
-    let basename = path.file_name().unwrap().to_str().unwrap();
-    let re = Regex::new(r"^\d{4}-\d{2}-\d{2}").unwrap();
-    if re.is_match(basename) {
+    let basename = match cat {
+        Category::FLAT => path.file_name().unwrap().to_str().unwrap(),
+        Category::TREE => path
+            .parent()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap(),
+    };
+    if RFC3339_RE.is_match(basename) {
         let date = format!("{}{}", &basename[0..10], "T00:00:00 Z");
         return (&date).parse().unwrap();
     }
     let updated = time_func(filepath);
-
     return FixedDateTime::from_utc(
         NaiveDateTime::from_timestamp(
             updated
@@ -268,6 +290,26 @@ fn get_update_time(filepath: &str, time_func: fn(&str) -> time::SystemTime) -> F
         ),
         FixedOffset::east(0),
     );
+}
+
+/// Remove the rfc3339 date in front of a file name if present. If the
+/// next chars after the date are '-', '_' or a space, skip them.
+fn remove_rfc3339_date(filename: &str) -> &str {
+    if RFC3339_RE.is_match(filename) {
+	let mut char_indices = filename[10..].char_indices();
+	let idx = loop {
+	    if let Some((idx, ch)) = char_indices.next() {
+		if ! ("_-".contains(ch) || ch.is_whitespace()) {
+		    break 10 + idx;
+		}
+	    } else {
+		break 10;
+	    }
+	};
+	&filename[idx..]
+    } else {
+        filename
+    }
 }
 
 /// Set the id, title, updated and link attributes of the provided
@@ -296,10 +338,8 @@ fn populate_entry_from_file(
     link.set_href(url.as_str());
     link.set_rel("alternate");
     entry.set_links(vec![link]);
-    entry.set_updated(get_update_time(filepath, time_func));
-    // if tree category, do not use file stem (because it is
-    // "index") but the parent directory name.
-    let default_title = match cat {
+    entry.set_updated(get_update_time(filepath, time_func, cat));
+    let default_title = remove_rfc3339_date(match cat {
         Category::FLAT => pfile.file_stem().unwrap().to_str().unwrap(),
         Category::TREE => pfile
             .parent()
@@ -308,11 +348,11 @@ fn populate_entry_from_file(
             .unwrap()
             .to_str()
             .unwrap(),
-    };
+    });
     let default_title = if clean {
-	default_title.replace("_", " ")
+        default_title.replace("_", " ")
     } else {
-	default_title.to_string()
+        default_title.to_string()
     };
     let title = extract_first_heading(filepath, &default_title);
     entry.set_title(title);
