@@ -1,17 +1,17 @@
 
 # Table of Contents
 
-1.  [Description](#orga6ad9cb)
-2.  [Structure description](#orga01be44)
-3.  [Usage](#orgc80c139)
-4.  [Notes about feed entry dates](#org5219b30)
-    1.  [flat categories](#org4539ff0)
-    2.  [tree categories](#orgb7bb8a2)
-    3.  [whatever the category is](#org6bd6f2c)
+1.  [Description](#orga14d021)
+2.  [Structure description](#org2b2cb0f)
+3.  [Usage](#org15d0975)
+4.  [Notes about feed entry dates](#orgf26c886)
+    1.  [flat categories](#orgf5f5ace)
+    2.  [tree categories](#orge330979)
+    3.  [whatever the category is](#orgdd312f3)
 
 
 
-<a id="orga6ad9cb"></a>
+<a id="orga14d021"></a>
 
 # Description
 
@@ -21,7 +21,7 @@ It supports a sitre structure description aiming at not being too
 stupid in its choice of files to include in the feed.
 
 
-<a id="orga01be44"></a>
+<a id="org2b2cb0f"></a>
 
 # Structure description
 
@@ -69,7 +69,7 @@ The content is supposed to be (bracketed text is a comment)
             `-- nobody-expects.mp3 [not in feed]
 
 
-<a id="orgc80c139"></a>
+<a id="org15d0975"></a>
 
 # Usage
 
@@ -81,7 +81,7 @@ The general syntax of GemAtom is as follows :
     FLAGS:
         -C, --clean-title    When using a file or directory name as a title, convert '_' into space.
         -h, --help           Prints help information
-            --mtime          Use file modification time, not file creation time
+            --mtime          Use file modification time, not file change time
         -q, --quiet          Do not write on stdout under non-error conditions
         -V, --version        Prints version information
     
@@ -97,23 +97,23 @@ The general syntax of GemAtom is as follows :
         -t, --title <STR>               Feed title
 
 
-<a id="org5219b30"></a>
+<a id="orgf26c886"></a>
 
 # Notes about feed entry dates
 
 
-<a id="org4539ff0"></a>
+<a id="orgf5f5ace"></a>
 
 ## flat categories
 
 The entry date retained is :
 
 -   if the file name begins with a rfc3339 date, keep this date.
--   otherwise use file creation date, except if `--mtime` flag is
-    present.
+-   otherwise use file last change time, except if `--mtime` flag is
+    present, causing the last modification time to be used.
 
 
-<a id="orgb7bb8a2"></a>
+<a id="orge330979"></a>
 
 ## tree categories
 
@@ -121,11 +121,11 @@ In tree categories, articles are "index" files contained in
 a directory dedicated to this article. Thus :
 
 -   if the parent dir of an article  starts with an rfc3339 date, use this date.
--   otherwise use file creation date, except if `--mtime` flag is
+-   otherwise use file last change time, except if `--mtime` flag is
     present.
 
 
-<a id="org6bd6f2c"></a>
+<a id="orgdd312f3"></a>
 
 ## whatever the category is
 
