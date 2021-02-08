@@ -63,7 +63,7 @@ USAGE:
 FLAGS:
     -C, --clean-title    When using a file or directory name as a title, convert '_' into space.
     -h, --help           Prints help information
-        --mtime          Use file modification time, not file creation time
+        --mtime          Use file modification time, not file change time
     -q, --quiet          Do not write on stdout under non-error conditions
     -V, --version        Prints version information
 
@@ -84,8 +84,8 @@ OPTIONS:
 
    The entry date retained is :
    - if the file name begins with a rfc3339 date, keep this date.
-   - otherwise use file creation date, except if ~--mtime~ flag is
-     present.
+   - otherwise use file last change time, except if ~--mtime~ flag is
+     present, causing the last modification time to be used.
 
 ** tree categories
    
@@ -93,7 +93,7 @@ OPTIONS:
    a directory dedicated to this article. Thus :
 
    - if the parent dir of an article  starts with an rfc3339 date, use this date.
-   - otherwise use file creation date, except if ~--mtime~ flag is
+   - otherwise use file last change time, except if ~--mtime~ flag is
      present.
 
 ** whatever the category is

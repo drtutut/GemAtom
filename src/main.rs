@@ -25,9 +25,12 @@ use pathdiff::diff_paths;
 use regex::Regex;
 use url::Url;
 
+const VERSION: &str = "1.1.1";
+
 lazy_static! {
     static ref RFC3339_RE: Regex = Regex::new(r"^\d{4}-\d{2}-\d{2}").unwrap();
 }
+
 
 /// Categories
 #[derive(PartialEq, Copy, Clone, Debug)]
@@ -121,12 +124,12 @@ fn parse_categories(values: &mut Values) -> Result<HashMap<String, Category>, St
     Ok(cats)
 }
 
-/// Returns the lat modification time of a file.
+/// Returns the last modification time of a file.
 fn mtime(fname: &str) -> time::SystemTime {
     fs::metadata(fname).unwrap().modified().unwrap()
 }
 
-/// Returns the creation time of a file.
+/// Returns the last change time of a file.
 fn ctime(fname: &str) -> time::SystemTime {
     fs::metadata(fname).unwrap().created().unwrap()
 }
@@ -393,7 +396,7 @@ fn build_feed(
     let mut gen = Generator::default();
     gen.set_value("gematom, an atom feed generator for gemini.");
     gen.set_uri("https://github.com/drtutut/gematom".to_string());
-    gen.set_version("1.0".to_string());
+    gen.set_version(VERSION.to_string());
     feed.set_generator(gen);
     feed.set_rights("© Éric Würbel 2021".to_string());
     let mut person = Person::default();
@@ -453,7 +456,7 @@ fn build_feed(
 
 fn main() {
     let matches = App::new("gematom")
-        .version("1.0")
+        .version(VERSION)
         .author("Eric Würbel <eric@vents-sauvages.fr>")
         .about("Generate an atom feed our of a gemini site")
         .arg(
@@ -552,7 +555,7 @@ fn main() {
         .arg(
             Arg::with_name("mtime")
                 .long("mtime")
-                .help("Use file modification time, not file creation time"),
+                .help("Use file modification time, not file change time"),
         )
         .get_matches();
     let base = Url::parse(matches.value_of("base").unwrap()).unwrap();
@@ -641,7 +644,7 @@ mod tests {
 
     #[test]
     fn test_is_valid_directory() {
-        assert_eq!(is_valid_directory(String::from("/home/wurbel")), Ok(()));
+        assert_eq!(is_valid_directory(String::from("/etc")), Ok(()));
         assert_eq!(
             is_valid_directory(String::from("/home/zorgl")),
             Err(String::from("Invalid directory: /home/zorgl"))
